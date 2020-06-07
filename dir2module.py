@@ -202,10 +202,15 @@ def parse_dependencies(deps):
 def main():
     parser = get_arg_parser()
     args = parser.parse_args()
-
     name, stream, version, context, arch = parse_nsvca(args.nsvca)
-    path = os.path.expanduser(args.dir)
-    packages = find_packages(path)
+
+    if args.dir:
+        path = os.path.expanduser(args.dir)
+        packages = find_packages(path)
+    else:
+        path = os.path.expanduser(args.pkglist)
+        packages = find_packages_in_file(path)
+
     requires = parse_dependencies(args.requires)
     description = args.description \
         or "This module has been generated using {0} tool".format(parser.prog)
