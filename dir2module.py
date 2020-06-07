@@ -74,6 +74,7 @@ def dumps_modulemd(name, stream, version, context, summary, arch, description,
     """
     mod_stream = Modulemd.ModuleStreamV2.new(name, stream)
     mod_stream.set_version(version)
+    mod_stream.set_context(context)
     mod_stream.set_summary(summary)
     mod_stream.set_description(description)
 
