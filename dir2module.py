@@ -4,6 +4,7 @@ and generate N:S:V:C:A.modulemd.yaml for them.
 """
 
 import os
+import sys
 import argparse
 import fnmatch
 import gi
@@ -223,4 +224,8 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except (KeyError, AttributeError) as ex:
+        sys.stderr.write("Error: {0}\n".format(str(ex)))
+        sys.exit(1)
