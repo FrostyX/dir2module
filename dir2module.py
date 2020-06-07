@@ -69,15 +69,32 @@ def package2nevra(package):
                                             A=nevra.arch)
 
 
-def package_license(package):
+def package_header(package):
     """
-    Examine an RPM package and return its license
+    Examine a RPM package file and return its headers
+    See https://docs.fedoraproject.org/en-US/Fedora_Draft_Documentation/0.1/html/RPM_Guide/ch16s04.html
     """
     ts = rpm.TransactionSet()
     fd = os.open(package, os.O_RDONLY)
     h = ts.hdrFromFdno(fd)
     os.close(fd)
-    return h["license"]
+    return h
+
+
+def package_license(package):
+    """
+    Examine a RPM package and return its license
+    """
+    header = package_header(package)
+    return header["license"]
+
+
+def package_has_modularity_label(package):
+    """
+    Examine a RPM package and see if it has `ModularityLabel` set in its header
+    """
+    header = package_header(package)
+    return "ModularityLabel" in header
 
 
 def dumps_modulemd(name, stream, version, context, summary, arch, description,
@@ -168,6 +185,8 @@ def get_arg_parser():
     parser.add_argument("-r", "--requires", action="append",
                         help=("Module runtime dependencies in a N:S format. "
                               "For multiple dependencies, repeat this option"))
+    parser.add_argument("--force", action="store_true",
+                        help="Suppress all constraints and hope for the best")
 
     input_group = parser.add_mutually_exclusive_group(required=True)
     input_group.add_argument("--dir", help="")
@@ -190,6 +209,11 @@ def main():
     description = args.description \
         or "This module has been generated using {0} tool".format(parser.prog)
     licenses = {package_license(package) for package in packages}
+
+    if not all([package_has_modularity_label(package) for package in packages])\
+       and not args.force:
+        raise KeyError("All packages needs to contain `ModularityLabel` header "
+                       "To suppress this constraint, use `--force` parameter")
 
     yaml = dumps_modulemd(name, stream, version, context, arch, args.summary,
                           description, args.license, licenses,
