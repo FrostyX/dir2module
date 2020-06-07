@@ -31,7 +31,8 @@ def find_packages_in_file(path):
     """
     Parse a text file containing a list of packages and return their list
     """
-    pass
+    with open(path, "r") as pkglist:
+        return [os.path.basename(pkg) for pkg in pkglist.read().split()]
 
 
 def package_names(packages):
