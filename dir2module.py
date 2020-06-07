@@ -7,6 +7,7 @@ import os
 import argparse
 import fnmatch
 import gi
+import rpm
 import hawkey
 from dnf.subject import Subject
 
@@ -66,6 +67,17 @@ def package2nevra(package):
         return "{N}-{E}:{V}-{R}.{A}".format(N=nevra.name, E=nevra.epoch or 0,
                                             V=nevra.version, R=nevra.release,
                                             A=nevra.arch)
+
+
+def package_license(package):
+    """
+    Examine an RPM package and return its license
+    """
+    ts = rpm.TransactionSet()
+    fd = os.open(package, os.O_RDONLY)
+    h = ts.hdrFromFdno(fd)
+    os.close(fd)
+    return h["license"]
 
 
 def dumps_modulemd(name, stream, version, context, summary, arch, description,
@@ -177,9 +189,10 @@ def main():
     requires = parse_dependencies(args.requires)
     description = args.description \
         or "This module has been generated using {0} tool".format(parser.prog)
+    licenses = {package_license(package) for package in packages}
 
     yaml = dumps_modulemd(name, stream, version, context, arch, args.summary,
-                          description, args.license, ["MIT"],
+                          description, args.license, licenses,
                           packages, requires)
     print(yaml)
 
