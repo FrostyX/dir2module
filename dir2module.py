@@ -20,11 +20,11 @@ def find_packages(path):
     Recursively find RPM packages in a `path` and return their list
     """
     packages = []
-    for _, __, filenames in os.walk(path):
+    for root, _, filenames in os.walk(path):
         for filename in fnmatch.filter(filenames, "*.rpm"):
             if filename.endswith(".src.rpm"):
                 continue
-            packages.append(filename)
+            packages.append(os.path.join(root, filename))
     return packages
 
 
@@ -33,7 +33,7 @@ def find_packages_in_file(path):
     Parse a text file containing a list of packages and return their list
     """
     with open(path, "r") as pkglist:
-        return [os.path.basename(pkg) for pkg in pkglist.read().split()]
+        return pkglist.read().split()
 
 
 def package_names(packages):
@@ -42,7 +42,7 @@ def package_names(packages):
     """
     names = set()
     for package in packages:
-        subject = Subject(package.strip(".rpm"))
+        subject = Subject(os.path.basename(package.strip(".rpm")))
         nevras = subject.get_nevra_possibilities(forms=[hawkey.FORM_NEVRA])
         for nevra in nevras:
             names.add(nevra.name)
@@ -60,7 +60,7 @@ def package2nevra(package):
     """
     Takes a package filename and returns its NEVRA
     """
-    subject = Subject(package.strip(".rpm"))
+    subject = Subject(os.path.basename(package.strip(".rpm")))
     nevras = subject.get_nevra_possibilities(forms=[hawkey.FORM_NEVRA])
     for nevra in nevras:
         return "{N}-{E}:{V}-{R}.{A}".format(N=nevra.name, E=nevra.epoch or 0,
