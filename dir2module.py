@@ -20,6 +20,68 @@ gi.require_version("Modulemd", "2.0")
 from gi.repository import Modulemd
 
 
+class Module(object):
+    """
+    Provide a high-level interface for representing modules and yaml generation
+    based on their values.
+    """
+    def __init__(self, name, stream, version, context, arch, summary,
+                 description, module_license, licenses, packages, requires):
+        self.name = name
+        self.stream = stream
+        self.version = version
+        self.context = context
+        self.arch = arch
+        self.summary = summary
+        self.description = description
+        self.module_license = module_license
+        self.licenses = licenses
+        self.packages = packages
+        self.requires = requires
+
+    @property
+    def filename(self):
+        """
+        Generate filename for a module yaml
+        """
+        return "{N}:{S}:{V}:{C}:{A}.modulemd.yaml".format(
+            N=self.name, S=self.stream, V=self.version,
+            C=self.context, A=self.arch)
+
+    def dumps(self):
+        """
+        Generate modulemd yaml based on input parameters and return it as a string
+        """
+        mod_stream = Modulemd.ModuleStreamV2.new(self.name, self.stream)
+        mod_stream.set_version(self.version)
+        mod_stream.set_context(self.context)
+        mod_stream.set_summary(self.summary)
+        mod_stream.set_description(self.description)
+
+        mod_stream.add_module_license(self.module_license)
+        for pkglicense in self.licenses:
+            mod_stream.add_content_license(pkglicense)
+
+        for nevra in package_nevras(self.packages):
+            mod_stream.add_rpm_artifact(nevra)
+
+        dependencies = Modulemd.Dependencies()
+        for depname, depstream in self.requires.items():
+            dependencies.add_runtime_stream(depname, depstream)
+        mod_stream.add_dependencies(dependencies)
+
+        index = Modulemd.ModuleIndex.new()
+        index.add_module_stream(mod_stream)
+        return index.dump_to_string()
+
+    def dump(self):
+        """
+        Generate modulemd yaml based on input parameters write it into file
+        """
+        with open(self.filename, "w") as moduleyaml:
+            moduleyaml.write(self.dumps())
+
+
 def find_packages(path):
     """
     Recursively find RPM packages in a `path` and return their list
@@ -108,63 +170,6 @@ def package_has_modularity_label(package):
     return bool(header["modularitylabel"])
 
 
-def dumps_modulemd(name, stream, version, context, summary, arch, description,
-                   module_license, licenses, packages, requires):
-    """
-    Generate modulemd yaml based on input parameters and return it as a string
-    """
-    mod_stream = Modulemd.ModuleStreamV2.new(name, stream)
-    mod_stream.set_version(version)
-    mod_stream.set_context(context)
-    mod_stream.set_summary(summary)
-    mod_stream.set_description(description)
-
-    mod_stream.add_module_license(module_license)
-    for pkglicense in licenses:
-        mod_stream.add_content_license(pkglicense)
-
-# DNF doesn't use following fields. They are not mandatory either.
-#    for package in package_names(packages):
-#        component = Modulemd.ComponentRpm.new(package)
-#        component.set_rationale("Present in the repository")
-#        mod_stream.add_component(component)
-#        mod_stream.add_rpm_api(package)
-
-    for nevra in package_nevras(packages):
-        mod_stream.add_rpm_artifact(nevra)
-
-    dependencies = Modulemd.Dependencies()
-    for depname, depstream in requires.items():
-        dependencies.add_runtime_stream(depname, depstream)
-    mod_stream.add_dependencies(dependencies)
-
-    index = Modulemd.ModuleIndex.new()
-    index.add_module_stream(mod_stream)
-    return index.dump_to_string()
-
-
-def dump_modulemd(name, stream, version, context, arch, summary, description,
-                  module_license, licenses, packages, requires):
-    """
-    Generate modulemd yaml based on input parameters write it into file
-    """
-
-    filename = module_filename(name, stream, version, context, arch)
-    yaml = dumps_modulemd(name, stream, version, context, arch, summary,
-                          description, module_license, licenses, packages,
-                          requires)
-    with open(filename, "w") as moduleyaml:
-        moduleyaml.write(yaml)
-
-
-def module_filename(name, stream, version, context, arch):
-    """
-    Generate filename for a module yaml
-    """
-    return "{N}:{S}:{V}:{C}:{A}.modulemd.yaml".format(
-        N=name, S=stream, V=version, C=context, A=arch)
-
-
 def parse_nsvca(nsvca):
     """
     Take module name, stream, version, context and architecture in a N:S:V:C:A
@@ -241,9 +246,11 @@ def main():
         raise RuntimeError("All packages need to contain the `modularitylabel` header. "
                        "To suppress this constraint, use `--force` parameter")
 
-    yaml = dumps_modulemd(name, stream, version, context, arch, args.summary,
+    module = Module(name, stream, version, context, arch, args.summary,
                           description, args.license, licenses,
                           packages, requires)
+
+    yaml = module.dumps()
     print(yaml)
 
 
