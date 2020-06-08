@@ -89,6 +89,7 @@ class Package(object):
 
     def __init__(self, path):
         self.path = path
+        self.header = self._get_header()
 
     @property
     def names(self):
@@ -118,7 +119,20 @@ class Package(object):
                                              V=nevra.version, RA=nevra.release)
 
     @property
-    def header(self):
+    def license(self):
+        """
+        Examine a RPM package and return its license
+        """
+        return self.header["license"]
+
+    @property
+    def has_modularity_label(self):
+        """
+        Examine a RPM package and see if it has `ModularityLabel` set in its header
+        """
+        return bool(self.header["modularitylabel"])
+
+    def _get_header(self):
         """
         Examine a RPM package file and return its header
         See https://docs.fedoraproject.org/en-US/Fedora_Draft_Documentation/0.1/html/RPM_Guide/ch16s04.html
@@ -129,22 +143,6 @@ class Package(object):
         with open(self.path, "r") as f:
             hdr = ts.hdrFromFdno(f.fileno())
             return hdr
-
-    @property
-    def license(self):
-        """
-        Examine a RPM package and return its license
-        """
-        # @TODO: avoid multiple reads
-        return self.header["license"]
-
-    @property
-    def has_modularity_label(self):
-        """
-        Examine a RPM package and see if it has `ModularityLabel` set in its header
-        """
-        # @TODO: avoid multiple reads
-        return bool(self.header["modularitylabel"])
 
 
 def find_packages(path):
