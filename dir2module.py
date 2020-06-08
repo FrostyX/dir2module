@@ -190,6 +190,9 @@ def get_arg_parser():
                               "For multiple dependencies, repeat this option"))
     parser.add_argument("--force", action="store_true",
                         help="Suppress all constraints and hope for the best")
+    parser.add_argument("--stdout", action="store_true",
+                        help=("By defult the output is saved in a file. Use "
+                              "this to suppress it and print to the STDOUT"))
 
     input_group = parser.add_mutually_exclusive_group(required=True)
     input_group.add_argument("--dir", help="")
@@ -239,8 +242,11 @@ def main():
     module = Module(name, stream, version, context, arch, args.summary,
                     description, args.license, licenses, nevras, requires)
 
-    yaml = module.dumps()
-    print(yaml)
+    if args.stdout:
+        print(module.dumps())
+    else:
+        module.dump()
+        print("Created {0}".format(module.filename))
 
 
 
