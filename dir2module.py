@@ -113,9 +113,9 @@ class Package(object):
         subject = Subject(filename)
         nevras = subject.get_nevra_possibilities(forms=[hawkey.FORM_NEVRA])
         for nevra in nevras:
-            return "{N}-{E}:{V}-{R}.{A}".format(N=nevra.name, E=nevra.epoch or 0,
-                                                V=nevra.version, R=nevra.release,
-                                                A=nevra.arch)
+            # For some reason `nevra.release` contains also the architecture
+            return "{N}-{E}:{V}-{RA}".format(N=nevra.name, E=nevra.epoch or 0,
+                                             V=nevra.version, RA=nevra.release)
 
     @property
     def header(self):
