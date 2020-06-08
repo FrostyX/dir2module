@@ -26,7 +26,7 @@ class Module(object):
     based on their values.
     """
     def __init__(self, name, stream, version, context, arch, summary,
-                 description, module_license, licenses, packages, requires):
+                 description, module_license, licenses, package_nevras, requires):
         self.name = name
         self.stream = stream
         self.version = version
@@ -36,7 +36,7 @@ class Module(object):
         self.description = description
         self.module_license = module_license
         self.licenses = licenses
-        self.packages = packages
+        self.package_nevras = package_nevras
         self.requires = requires
 
     @property
@@ -62,7 +62,7 @@ class Module(object):
         for pkglicense in self.licenses:
             mod_stream.add_content_license(pkglicense)
 
-        for nevra in package_nevras(self.packages):
+        for nevra in self.package_nevras:
             mod_stream.add_rpm_artifact(nevra)
 
         dependencies = Modulemd.Dependencies()
@@ -80,6 +80,71 @@ class Module(object):
         """
         with open(self.filename, "w") as moduleyaml:
             moduleyaml.write(self.dumps())
+
+
+class Package(object):
+    """
+    Provide a high-level package interface for the needs of module generation
+    """
+
+    def __init__(self, path):
+        self.path = path
+
+    @property
+    def names(self):
+        """
+        Takes a list of package filenames and returns a set of unique package names
+        @TODO explain why it is `names` and not `name`.
+        """
+        subject = Subject(os.path.basename(self.path.strip(".rpm")))
+        nevras = subject.get_nevra_possibilities(forms=[hawkey.FORM_NEVRA])
+        return {nevra.name for nevra in nevras}
+
+    @property
+    def nevra(self):
+        """
+        Takes a package filename and returns its NEVRA
+        """
+        filename = os.path.basename(self.path)
+        if not filename.endswith(".rpm"):
+            raise ValueError("File name doesn't end with '.rpm': {}".format(self.path))
+
+        # @TODO: construct NEVRA from rpm header
+        subject = Subject(filename)
+        nevras = subject.get_nevra_possibilities(forms=[hawkey.FORM_NEVRA])
+        for nevra in nevras:
+            return "{N}-{E}:{V}-{R}.{A}".format(N=nevra.name, E=nevra.epoch or 0,
+                                                V=nevra.version, R=nevra.release,
+                                                A=nevra.arch)
+
+    @property
+    def header(self):
+        """
+        Examine a RPM package file and return its header
+        See https://docs.fedoraproject.org/en-US/Fedora_Draft_Documentation/0.1/html/RPM_Guide/ch16s04.html
+        """
+        ts = rpm.TransactionSet()
+        ts.setKeyring(rpm.keyring())
+        ts.setVSFlags(rpm._RPMVSF_NOSIGNATURES|rpm._RPMVSF_NODIGESTS)
+        with open(self.path, "r") as f:
+            hdr = ts.hdrFromFdno(f.fileno())
+            return hdr
+
+    @property
+    def license(self):
+        """
+        Examine a RPM package and return its license
+        """
+        # @TODO: avoid multiple reads
+        return self.header["license"]
+
+    @property
+    def has_modularity_label(self):
+        """
+        Examine a RPM package and see if it has `ModularityLabel` set in its header
+        """
+        # @TODO: avoid multiple reads
+        return bool(self.header["modularitylabel"])
 
 
 def find_packages(path):
@@ -114,60 +179,6 @@ def package_names(packages):
         for nevra in nevras:
             names.add(nevra.name)
     return names
-
-
-def package_nevras(packages):
-    """
-    Takes a list of package filenames and returns a set of unique NEVRAs
-    """
-    return {package2nevra(package) for package in packages}
-
-
-def package2nevra(path):
-    """
-    Takes a package filename and returns its NEVRA
-    """
-    file_name = os.path.basename(path)
-    if not file_name.endswith(".rpm"):
-        raise ValueError("File name doesn't end with '.rpm': {}".format(path))
-    # TODO: construct NEVRA from rpm header
-    subject = Subject(file_name)
-    nevras = subject.get_nevra_possibilities(forms=[hawkey.FORM_NEVRA])
-    for nevra in nevras:
-        return "{N}-{E}:{V}-{R}.{A}".format(N=nevra.name, E=nevra.epoch or 0,
-                                            V=nevra.version, R=nevra.release,
-                                            A=nevra.arch)
-
-
-def package_header(path):
-    """
-    Examine a RPM package file and return its header
-    See https://docs.fedoraproject.org/en-US/Fedora_Draft_Documentation/0.1/html/RPM_Guide/ch16s04.html
-    """
-    ts = rpm.TransactionSet()
-    ts.setKeyring(rpm.keyring())
-    ts.setVSFlags(rpm._RPMVSF_NOSIGNATURES|rpm._RPMVSF_NODIGESTS)
-    with open(path, "r") as f:
-        hdr = ts.hdrFromFdno(f.fileno())
-        return hdr
-
-
-def package_license(package):
-    """
-    Examine a RPM package and return its license
-    """
-    # TODO: wrap in a class or pass hdr argument to avoid multiple reads
-    header = package_header(package)
-    return header["license"]
-
-
-def package_has_modularity_label(package):
-    """
-    Examine a RPM package and see if it has `ModularityLabel` set in its header
-    """
-    # TODO: wrap in a class or pass hdr argument to avoid multiple reads
-    header = package_header(package)
-    return bool(header["modularitylabel"])
 
 
 def parse_nsvca(nsvca):
@@ -229,26 +240,29 @@ def main():
         path = os.path.expanduser(args.pkglist)
         packages = find_packages_in_file(path)
 
+
+    packages = [Package(package) for package in packages]
+    licenses = {package.license for package in packages}
+    nevras = {package.nevra for package in packages}
+
     requires = parse_dependencies(args.requires)
     description = args.description \
         or "This module has been generated using {0} tool".format(parser.prog)
-    licenses = {package_license(package) for package in packages}
-
 
     missing_labels = []
     for package in packages:
-        if not package_has_modularity_label(package):
-            missing_labels.append(package)
+        if not package.has_modularity_label:
+            missing_labels.append(package.path)
             msg = "ERROR: " if args.force else "WARNING: "
-            msg += "RPM does not have `modularitylabel` header set: {}".format(package)
+            msg += "RPM does not have `modularitylabel` header set: {}".format(package.path)
             print(msg)
+
     if missing_labels and not args.force:
         raise RuntimeError("All packages need to contain the `modularitylabel` header. "
                        "To suppress this constraint, use `--force` parameter")
 
     module = Module(name, stream, version, context, arch, args.summary,
-                          description, args.license, licenses,
-                          packages, requires)
+                    description, args.license, licenses, nevras, requires)
 
     yaml = module.dumps()
     print(yaml)
