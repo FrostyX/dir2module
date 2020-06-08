@@ -1,15 +1,18 @@
+#!/usr/bin/python3
+
 """
 Recursively read RPMs from DIR or read them from specified pkglist
 and generate N:S:V:C:A.modulemd.yaml for them.
 """
 
-import os
-import sys
 import argparse
 import fnmatch
+import os
+import sys
+
 import gi
-import rpm
 import hawkey
+import rpm
 from dnf.subject import Subject
 
 
@@ -35,7 +38,7 @@ def find_packages_in_file(path):
     Parse a text file containing a list of packages and return their list
     """
     with open(path, "r") as pkglist:
-        return pkglist.read().split()
+        return pkglist.read().splitlines()
 
 
 def package_names(packages):
@@ -58,11 +61,15 @@ def package_nevras(packages):
     return {package2nevra(package) for package in packages}
 
 
-def package2nevra(package):
+def package2nevra(path):
     """
     Takes a package filename and returns its NEVRA
     """
-    subject = Subject(os.path.basename(package.strip(".rpm")))
+    file_name = os.path.basename(path)
+    if not file_name.endswith(".rpm"):
+        raise ValueError("File name doesn't end with '.rpm': {}".format(path))
+    # TODO: construct NEVRA from rpm header
+    subject = Subject(file_name)
     nevras = subject.get_nevra_possibilities(forms=[hawkey.FORM_NEVRA])
     for nevra in nevras:
         return "{N}-{E}:{V}-{R}.{A}".format(N=nevra.name, E=nevra.epoch or 0,
@@ -70,22 +77,24 @@ def package2nevra(package):
                                             A=nevra.arch)
 
 
-def package_header(package):
+def package_header(path):
     """
-    Examine a RPM package file and return its headers
+    Examine a RPM package file and return its header
     See https://docs.fedoraproject.org/en-US/Fedora_Draft_Documentation/0.1/html/RPM_Guide/ch16s04.html
     """
     ts = rpm.TransactionSet()
-    fd = os.open(package, os.O_RDONLY)
-    h = ts.hdrFromFdno(fd)
-    os.close(fd)
-    return h
+    ts.setKeyring(rpm.keyring())
+    ts.setVSFlags(rpm._RPMVSF_NOSIGNATURES|rpm._RPMVSF_NODIGESTS)
+    with open(path, "r") as f:
+        hdr = ts.hdrFromFdno(f.fileno())
+        return hdr
 
 
 def package_license(package):
     """
     Examine a RPM package and return its license
     """
+    # TODO: wrap in a class or pass hdr argument to avoid multiple reads
     header = package_header(package)
     return header["license"]
 
@@ -94,8 +103,9 @@ def package_has_modularity_label(package):
     """
     Examine a RPM package and see if it has `ModularityLabel` set in its header
     """
+    # TODO: wrap in a class or pass hdr argument to avoid multiple reads
     header = package_header(package)
-    return "ModularityLabel" in header
+    return bool(header["modularitylabel"])
 
 
 def dumps_modulemd(name, stream, version, context, summary, arch, description,
@@ -113,11 +123,12 @@ def dumps_modulemd(name, stream, version, context, summary, arch, description,
     for pkglicense in licenses:
         mod_stream.add_content_license(pkglicense)
 
-    for package in package_names(packages):
-        component = Modulemd.ComponentRpm.new(package)
-        component.set_rationale("Present in the repository")
-        mod_stream.add_component(component)
-        mod_stream.add_rpm_api(package)
+# DNF doesn't use following fields. They are not mandatory either.
+#    for package in package_names(packages):
+#        component = Modulemd.ComponentRpm.new(package)
+#        component.set_rationale("Present in the repository")
+#        mod_stream.add_component(component)
+#        mod_stream.add_rpm_api(package)
 
     for nevra in package_nevras(packages):
         mod_stream.add_rpm_artifact(nevra)
@@ -159,9 +170,9 @@ def parse_nsvca(nsvca):
     Take module name, stream, version, context and architecture in a N:S:V:C:A
     format and return them as a separate values.
     """
-    if nsvca.count(":") != 4:
-        raise AttributeError("N:S:V:C:A in unexpected format")
     split = nsvca.split(":")
+    if len(split) != 5:
+        raise ValueError("N:S:V:C:A in unexpected format")
     split[2] = int(split[2])
     return split
 
@@ -196,6 +207,8 @@ def get_arg_parser():
 
 
 def parse_dependencies(deps):
+    if deps is None:
+        return {}
     return dict([dep.split(":") for dep in deps])
 
 
@@ -216,9 +229,16 @@ def main():
         or "This module has been generated using {0} tool".format(parser.prog)
     licenses = {package_license(package) for package in packages}
 
-    if not all([package_has_modularity_label(package) for package in packages])\
-       and not args.force:
-        raise KeyError("All packages needs to contain `ModularityLabel` header "
+
+    missing_labels = []
+    for package in packages:
+        if not package_has_modularity_label(package):
+            missing_labels.append(package)
+            msg = "ERROR: " if args.force else "WARNING: "
+            msg += "RPM does not have `modularitylabel` header set: {}".format(package)
+            print(msg)
+    if missing_labels and not args.force:
+        raise RuntimeError("All packages need to contain the `modularitylabel` header. "
                        "To suppress this constraint, use `--force` parameter")
 
     yaml = dumps_modulemd(name, stream, version, context, arch, args.summary,
@@ -231,6 +251,6 @@ def main():
 if __name__ == "__main__":
     try:
         main()
-    except (KeyError, AttributeError) as ex:
+    except (RuntimeError, ValueError) as ex:
         sys.stderr.write("Error: {0}\n".format(str(ex)))
         sys.exit(1)
