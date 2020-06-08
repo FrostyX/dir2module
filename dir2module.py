@@ -92,16 +92,6 @@ class Package(object):
         self.header = self._get_header()
 
     @property
-    def names(self):
-        """
-        Takes a list of package filenames and returns a set of unique package names
-        @TODO explain why it is `names` and not `name`.
-        """
-        subject = Subject(os.path.basename(self.path.strip(".rpm")))
-        nevras = subject.get_nevra_possibilities(forms=[hawkey.FORM_NEVRA])
-        return {nevra.name for nevra in nevras}
-
-    @property
     def nevra(self):
         """
         Takes a package filename and returns its NEVRA
@@ -164,19 +154,6 @@ def find_packages_in_file(path):
     """
     with open(path, "r") as pkglist:
         return pkglist.read().splitlines()
-
-
-def package_names(packages):
-    """
-    Takes a list of package filenames and returns a set of unique package names
-    """
-    names = set()
-    for package in packages:
-        subject = Subject(os.path.basename(package.strip(".rpm")))
-        nevras = subject.get_nevra_possibilities(forms=[hawkey.FORM_NEVRA])
-        for nevra in nevras:
-            names.add(nevra.name)
-    return names
 
 
 def parse_nsvca(nsvca):
